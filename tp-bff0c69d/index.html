@@ -70,7 +70,7 @@
 </head>
 <body>
 <header>
-  <h1>舌打ち入力プロト <span class="pill">v0.2</span></h1>
+  <h1>舌打ち入力プロト <span class="pill">v0.3</span></h1>
   <div class="sub">音は端末内で処理・どこにも送信しません</div>
 </header>
 
@@ -177,7 +177,12 @@
   <!-- 操作デモ(番号オーバーレイ) -->
   <section id="pHome" class="page" hidden>
     <div class="card">
-      <p class="hint"><b>低い舌打ちを番号の回数だけ連打</b>→少し待つと実行。<b>高=キャンセル</b>。画面タップでも動きます。<br>(デモモード: 実際の家電は動きません)</p>
+      <div style="display:flex; gap:8px; margin-bottom:8px;">
+        <button class="big-btn secondary" id="btnModeRenda" style="flex:1; padding:12px;">連打モード</button>
+        <button class="big-btn secondary" id="btnModeMorse" style="flex:1; padding:12px;">モールス数字</button>
+      </div>
+      <p class="hint" id="homeHint"></p>
+      <p class="hint">(デモモード: 実際の家電は動きません)</p>
       <div id="homeBuf">&nbsp;</div>
       <div id="homeGrid"></div>
       <div id="homeStatus" class="hint" style="text-align:center; min-height:20px; margin-top:6px;">&nbsp;</div>
@@ -560,7 +565,20 @@ const DEVICES = [
   {icon:"🌀", name:"扇風機",   on:"回転中",   off:"停止"},
   {icon:"🎵", name:"音楽",     on:"再生中",   off:"停止"},
 ];
-const H = { buf:0, lastAt:0, gapMs:1000, states:DEVICES.map(()=>false) };
+const H = { buf:0, mseq:"", lastAt:0, gapMs:1000, states:DEVICES.map(()=>false),
+            mode: localStorage.getItem("home_mode") || "renda" };
+function setHomeMode(m){
+  H.mode = m; H.buf = 0; H.mseq = "";
+  localStorage.setItem("home_mode", m);
+  $("homeBuf").textContent = " ";
+  $("btnModeRenda").style.background = m==="renda" ? "var(--accent)" : "#2c333c";
+  $("btnModeRenda").style.color = m==="renda" ? "#1a1a1a" : "var(--text)";
+  $("btnModeMorse").style.background = m==="morse" ? "var(--accent)" : "#2c333c";
+  $("btnModeMorse").style.color = m==="morse" ? "#1a1a1a" : "var(--text)";
+  $("homeHint").innerHTML = m==="renda"
+    ? "<b>低い舌打ちを番号の回数だけ連打</b>→少し待つと実行。<b>高=キャンセル</b>。画面タップでも動きます。"
+    : "<b>番号をモールスで打つ</b>(低=・/高=−)→少し待つと実行。例: 3番=・・・−−。数字以外の符号わ無効になります。画面タップでも動きます。";
+}
 (function(){
   $("homeGrid").innerHTML = DEVICES.map((d,i)=>
     '<div class="dev" data-d="'+i+'">'+
@@ -578,26 +596,44 @@ $("hGapSlider").oninput = e=>{
   $("hGapVal").textContent = e.target.value;
 };
 function homeInput(isHi){
-  if(isHi){
-    H.buf = 0;
-    $("homeBuf").textContent = " ";
-    $("homeStatus").textContent = "キャンセルしました";
-    return;
+  if(H.mode === "renda"){
+    if(isHi){
+      H.buf = 0;
+      $("homeBuf").textContent = " ";
+      $("homeStatus").textContent = "キャンセルしました";
+      return;
+    }
+    H.buf++;
+    H.lastAt = performance.now();
+    $("homeBuf").textContent = H.buf;
+    const d = DEVICES[H.buf-1];
+    $("homeStatus").textContent = d ? "→ "+(H.buf)+"番 "+d.name+"(待つと実行)" : "番号が大きすぎます(高でキャンセル)";
+  }else{
+    H.mseq += isHi ? "-" : ".";
+    H.lastAt = performance.now();
+    $("homeBuf").textContent = H.mseq.replace(/\./g,"・").replace(/-/g,"−");
   }
-  H.buf++;
-  H.lastAt = performance.now();
-  $("homeBuf").textContent = H.buf;
-  const d = DEVICES[H.buf-1];
-  $("homeStatus").textContent = d ? "→ "+(H.buf)+"番 "+d.name+"(待つと実行)" : "番号が大きすぎます(高でキャンセル)";
 }
 setInterval(()=>{
-  if(H.buf > 0 && (performance.now() - H.lastAt) > H.gapMs){
+  const idle = (performance.now() - H.lastAt) > H.gapMs;
+  if(H.mode === "renda" && H.buf > 0 && idle){
     const n = H.buf; H.buf = 0;
     $("homeBuf").textContent = " ";
     if(n >= 1 && n <= DEVICES.length) homeActivate(n-1);
     else $("homeStatus").textContent = "該当なし: "+n+"番";
   }
+  if(H.mode === "morse" && H.mseq && idle){
+    const ch = MORSE[H.mseq] || "?";
+    H.mseq = "";
+    $("homeBuf").textContent = " ";
+    const n = parseInt(ch);
+    if(!isNaN(n) && n >= 1 && n <= DEVICES.length) homeActivate(n-1);
+    else $("homeStatus").textContent = "無効な符号でした(数字を打ってな): "+ch;
+  }
 }, 100);
+$("btnModeRenda").onclick = ()=>setHomeMode("renda");
+$("btnModeMorse").onclick = ()=>setHomeMode("morse");
+setHomeMode(H.mode);
 function homeActivate(i){
   const d = DEVICES[i];
   const el = document.querySelector('.dev[data-d="'+i+'"]');
