@@ -50,6 +50,19 @@
   #morseKana{font-size:22px; text-align:center; min-height:34px; color:var(--ok); word-break:break-all;}
   #quizTarget{font-size:56px; font-weight:800; text-align:center; padding:10px 0;}
   input[type=range]{accent-color:var(--accent);}
+  #homeBuf{font-size:40px; font-weight:800; text-align:center; min-height:52px; color:var(--accent);}
+  #homeGrid{display:grid; grid-template-columns:1fr 1fr; gap:10px;}
+  .dev{position:relative; border-radius:16px; background:#2c333c; padding:18px 10px 14px;
+       text-align:center; border:3px solid transparent;}
+  .dev.on{background:#1f3a2a; border-color:var(--ok);}
+  .dev.flash{border-color:var(--accent);}
+  .dev .badge{position:absolute; top:-10px; left:-6px; width:34px; height:34px; border-radius:50%;
+       background:var(--accent); color:#1a1a1a; font-size:20px; font-weight:800;
+       display:flex; align-items:center; justify-content:center; box-shadow:0 2px 6px rgba(0,0,0,.5);}
+  .dev .icon{font-size:34px;}
+  .dev .name{font-size:15px; font-weight:700; margin-top:4px;}
+  .dev .state{font-size:12px; color:var(--sub); margin-top:2px;}
+  .dev.on .state{color:var(--ok); font-weight:700;}
   .stat-line span:last-child{font-weight:700;}
   footer{text-align:center; color:var(--sub); font-size:10px; padding:16px;}
   .pill{display:inline-block; padding:2px 10px; border-radius:10px; background:#2c333c; font-size:11px; margin-left:6px;}
@@ -57,7 +70,7 @@
 </head>
 <body>
 <header>
-  <h1>舌打ち入力プロト <span class="pill">v0.1</span></h1>
+  <h1>舌打ち入力プロト <span class="pill">v0.2</span></h1>
   <div class="sub">音は端末内で処理・どこにも送信しません</div>
 </header>
 
@@ -67,6 +80,7 @@
   <button class="tab" data-p="pLive">判定</button>
   <button class="tab" data-p="pTask">課題</button>
   <button class="tab" data-p="pMorse">モールス</button>
+  <button class="tab" data-p="pHome">操作</button>
   <button class="tab" data-p="pAmb">環境音</button>
 </div>
 
@@ -157,6 +171,19 @@
       <details><summary class="hint">モールス符号表(タップで開く)</summary>
         <div id="morseChart" class="hint" style="column-count:3; margin-top:8px; line-height:2;"></div>
       </details>
+    </div>
+  </section>
+
+  <!-- 操作デモ(番号オーバーレイ) -->
+  <section id="pHome" class="page" hidden>
+    <div class="card">
+      <p class="hint"><b>低い舌打ちを番号の回数だけ連打</b>→少し待つと実行。<b>高=キャンセル</b>。画面タップでも動きます。<br>(デモモード: 実際の家電は動きません)</p>
+      <div id="homeBuf">&nbsp;</div>
+      <div id="homeGrid"></div>
+      <div id="homeStatus" class="hint" style="text-align:center; min-height:20px; margin-top:6px;">&nbsp;</div>
+      <label class="hint">実行までの待ち時間: <span id="hGapVal">1.0</span>秒
+        <input type="range" id="hGapSlider" min="0.6" max="2.0" step="0.1" value="1.0" style="width:100%;">
+      </label>
     </div>
   </section>
 
@@ -282,6 +309,7 @@ function onOnset(){
   addLog((isHi?"高":"低") + " " + Math.round(centroid) + "Hz");
   if(S.task.on) taskInput(isHi);
   if(!$("pMorse").hidden) morseInput(isHi);
+  if(!$("pHome").hidden) homeInput(isHi);
 }
 
 function flashResult(txt, bg){
@@ -521,6 +549,68 @@ function quizCheck(ch){
 function quizStats(){
   $("qHit").textContent = M.quiz.hit + " / " + M.quiz.total;
   $("qTime").textContent = M.quiz.times.length ? mean(M.quiz.times).toFixed(1)+" 秒" : "—";
+}
+
+// ===== 操作デモ(番号オーバーレイ・低N連打=N番/高=キャンセル) =====
+const DEVICES = [
+  {icon:"💡", name:"照明",     on:"点灯中",   off:"消灯"},
+  {icon:"❄️", name:"エアコン", on:"運転中",   off:"停止"},
+  {icon:"📺", name:"テレビ",   on:"ON",       off:"OFF"},
+  {icon:"🪟", name:"カーテン", on:"開いてる", off:"閉じてる"},
+  {icon:"🌀", name:"扇風機",   on:"回転中",   off:"停止"},
+  {icon:"🎵", name:"音楽",     on:"再生中",   off:"停止"},
+];
+const H = { buf:0, lastAt:0, gapMs:1000, states:DEVICES.map(()=>false) };
+(function(){
+  $("homeGrid").innerHTML = DEVICES.map((d,i)=>
+    '<div class="dev" data-d="'+i+'">'+
+      '<div class="badge">'+(i+1)+'</div>'+
+      '<div class="icon">'+d.icon+'</div>'+
+      '<div class="name">'+d.name+'</div>'+
+      '<div class="state">'+d.off+'</div>'+
+    '</div>').join("");
+  document.querySelectorAll(".dev").forEach(el=>{
+    el.onclick = ()=>homeActivate(parseInt(el.dataset.d));
+  });
+})();
+$("hGapSlider").oninput = e=>{
+  H.gapMs = parseFloat(e.target.value)*1000;
+  $("hGapVal").textContent = e.target.value;
+};
+function homeInput(isHi){
+  if(isHi){
+    H.buf = 0;
+    $("homeBuf").textContent = " ";
+    $("homeStatus").textContent = "キャンセルしました";
+    return;
+  }
+  H.buf++;
+  H.lastAt = performance.now();
+  $("homeBuf").textContent = H.buf;
+  const d = DEVICES[H.buf-1];
+  $("homeStatus").textContent = d ? "→ "+(H.buf)+"番 "+d.name+"(待つと実行)" : "番号が大きすぎます(高でキャンセル)";
+}
+setInterval(()=>{
+  if(H.buf > 0 && (performance.now() - H.lastAt) > H.gapMs){
+    const n = H.buf; H.buf = 0;
+    $("homeBuf").textContent = " ";
+    if(n >= 1 && n <= DEVICES.length) homeActivate(n-1);
+    else $("homeStatus").textContent = "該当なし: "+n+"番";
+  }
+}, 100);
+function homeActivate(i){
+  const d = DEVICES[i];
+  const el = document.querySelector('.dev[data-d="'+i+'"]');
+  el.classList.add("flash");
+  setTimeout(()=>el.classList.remove("flash"), 600);
+  if(d.momentary){
+    $("homeStatus").textContent = "🔊 よびかけを送信しました(デモ)";
+    return;
+  }
+  H.states[i] = !H.states[i];
+  el.classList.toggle("on", H.states[i]);
+  el.querySelector(".state").textContent = H.states[i] ? d.on : d.off;
+  $("homeStatus").textContent = (i+1)+"番: "+d.name+"を"+(H.states[i]?"つけました":"消しました")+"(デモ)";
 }
 
 // ===== 環境音テスト =====
