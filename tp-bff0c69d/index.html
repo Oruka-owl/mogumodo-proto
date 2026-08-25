@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<meta name="robots" content="noindex, nofollow">
+<title>舌打ち入力プロト v0 — 百雲堂</title>
+<style>
+  :root{
+    --bg:#111418; --card:#1c2128; --text:#e8eaed; --sub:#9aa3ad;
+    --lo:#4da3ff; --hi:#ffb347; --ok:#3ddc84; --ng:#ff5c5c; --accent:#c9a96a;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  body{margin:0; font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans",sans-serif;
+       background:var(--bg); color:var(--text); min-height:100vh;}
+  header{padding:14px 16px 8px; text-align:center;}
+  header h1{font-size:18px; margin:0; letter-spacing:.05em;}
+  header .sub{font-size:11px; color:var(--sub); margin-top:2px;}
+  #tabs{display:flex; gap:6px; padding:8px 10px; position:sticky; top:0; background:var(--bg); z-index:5;}
+  .tab{flex:1; padding:12px 4px; border:none; border-radius:12px; background:var(--card);
+       color:var(--sub); font-size:13px; font-weight:600;}
+  .tab.active{background:var(--accent); color:#1a1a1a;}
+  main{padding:10px 14px 40px; max-width:520px; margin:0 auto;}
+  .card{background:var(--card); border-radius:16px; padding:16px; margin-bottom:12px;}
+  .big-btn{display:block; width:100%; padding:20px; font-size:19px; font-weight:700;
+           border:none; border-radius:16px; background:var(--accent); color:#1a1a1a; margin:8px 0;}
+  .big-btn:disabled{opacity:.4;}
+  .big-btn.secondary{background:#2c333c; color:var(--text);}
+  #meter{height:14px; border-radius:7px; background:#2c333c; overflow:hidden; margin-top:10px;}
+  #meterBar{height:100%; width:0%; background:var(--ok); transition:width .05s linear;}
+  #bigResult{font-size:64px; font-weight:800; text-align:center; padding:24px 0; border-radius:16px;
+             background:#2c333c; margin:8px 0; transition:background .1s;}
+  .counts{display:flex; gap:10px; text-align:center;}
+  .counts div{flex:1; background:#2c333c; border-radius:12px; padding:10px;}
+  .counts .n{font-size:28px; font-weight:800;}
+  .lo{color:var(--lo);} .hi{color:var(--hi);}
+  #log{font-size:12px; color:var(--sub); max-height:130px; overflow-y:auto; margin-top:10px; line-height:1.7;}
+  .hint{font-size:12px; color:var(--sub); line-height:1.6;}
+  #calStatus{font-size:14px; line-height:1.9; margin-top:8px;}
+  #scanArea{display:grid; grid-template-columns:1fr 1fr; gap:10px; margin:10px 0;}
+  .scan-cell{padding:30px 0; border-radius:16px; background:#2c333c; text-align:center;
+             font-size:26px; font-weight:800; border:3px solid transparent;}
+  .scan-cell.cursor{border-color:var(--accent); background:#3a3320;}
+  .scan-cell.target{background:#173a2a;}
+  .scan-cell.target.cursor{background:#1f5c3d; border-color:var(--ok);}
+  #ambientCount{font-size:56px; font-weight:800; text-align:center; padding:16px 0;}
+  .stat-line{display:flex; justify-content:space-between; padding:4px 0; font-size:14px;}
+  .stat-line span:last-child{font-weight:700;}
+  footer{text-align:center; color:var(--sub); font-size:10px; padding:16px;}
+  .pill{display:inline-block; padding:2px 10px; border-radius:10px; background:#2c333c; font-size:11px; margin-left:6px;}
+</style>
+</head>
+<body>
+<header>
+  <h1>舌打ち入力プロト <span class="pill">v0</span></h1>
+  <div class="sub">音は端末内で処理・どこにも送信しません</div>
+</header>
+
+<div id="tabs">
+  <button class="tab active" data-p="pStart">開始</button>
+  <button class="tab" data-p="pCal">調整</button>
+  <button class="tab" data-p="pLive">判定</button>
+  <button class="tab" data-p="pTask">課題</button>
+  <button class="tab" data-p="pAmb">環境音</button>
+</div>
+
+<main>
+  <!-- 開始 -->
+  <section id="pStart" class="page">
+    <div class="card">
+      <p class="hint">マイクで「舌打ち」を拾って、<b>低い音/高い音</b>を聞き分けるテスト機です。<br>
+      ①下のボタンでマイクを開始 → ②「調整」で自分の舌打ちを覚えさせる → ③「判定」「課題」で試す。</p>
+      <button class="big-btn" id="btnMic">🎙 マイクを開始する</button>
+      <div id="micState" class="hint" style="margin-top:8px;">マイク: 停止中</div>
+      <div id="meter"><div id="meterBar"></div></div>
+      <p class="hint" style="margin-top:10px;">💡 コツ: 口を「タッ」と鳴らすのが低、「チッ」(舌先を上あご前方)が高、みたいに<b>自分が出しやすい2種類</b>でOK。決まりはありません。</p>
+    </div>
+  </section>
+
+  <!-- 調整 -->
+  <section id="pCal" class="page" hidden>
+    <div class="card">
+      <p class="hint"><b>低→高の順に5回ずつ</b>録ります。ボタンを押してから、1秒おきくらいに舌打ちしてください。</p>
+      <button class="big-btn" id="btnCalLo">① 低い舌打ちを5回 録る</button>
+      <button class="big-btn" id="btnCalHi">② 高い舌打ちを5回 録る</button>
+      <div id="calStatus">未調整</div>
+      <button class="big-btn secondary" id="btnCalReset">調整をやり直す</button>
+    </div>
+  </section>
+
+  <!-- 判定 -->
+  <section id="pLive" class="page" hidden>
+    <div class="card">
+      <div id="bigResult">—</div>
+      <div class="counts">
+        <div><div class="n lo" id="cntLo">0</div><div class="hint">低</div></div>
+        <div><div class="n hi" id="cntHi">0</div><div class="hint">高</div></div>
+        <div><div class="n" id="cntAll">0</div><div class="hint">合計</div></div>
+      </div>
+      <div id="log"></div>
+      <button class="big-btn secondary" id="btnLiveReset">カウントをリセット</button>
+    </div>
+  </section>
+
+  <!-- 課題 -->
+  <section id="pTask" class="page" hidden>
+    <div class="card">
+      <p class="hint"><b>低=つぎへ送る/高=けってい</b>。緑のマスに枠を合わせて決定してください。5問1セット。</p>
+      <div id="scanArea">
+        <div class="scan-cell" data-i="0">A</div>
+        <div class="scan-cell" data-i="1">B</div>
+        <div class="scan-cell" data-i="2">C</div>
+        <div class="scan-cell" data-i="3">D</div>
+      </div>
+      <button class="big-btn" id="btnTaskStart">課題スタート</button>
+      <div id="taskStats">
+        <div class="stat-line"><span>正解</span><span id="tHit">0 / 0</span></div>
+        <div class="stat-line"><span>操作ミス(送り過ぎ等)</span><span id="tMiss">0</span></div>
+        <div class="stat-line"><span>平均所要時間</span><span id="tTime">—</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 環境音 -->
+  <section id="pAmb" class="page" hidden>
+    <div class="card">
+      <p class="hint"><b>60秒間なにもしない</b>でください(誤検知テスト)。テレビをつけた部屋・病室に近い環境で回すと本番データになります。</p>
+      <div id="ambientCount">—</div>
+      <div class="hint" style="text-align:center;" id="ambState">停止中</div>
+      <button class="big-btn" id="btnAmb">60秒テスト開始</button>
+    </div>
+  </section>
+
+  <div class="card">
+    <div class="stat-line"><span>しきい値(低/高の境目)</span><span id="statTh">未調整</span></div>
+    <div class="stat-line"><span>直近の音の高さ</span><span id="statHz">—</span></div>
+  </div>
+</main>
+<footer>百雲堂ブリッジ 入力層プロトタイプ — 2026-08</footer>
+
+<script>
+"use strict";
+// ===== 状態 =====
+const S = {
+  ctx:null, analyser:null, running:false,
+  noiseFloor:0.003, lastOnset:0,
+  cal:{loC:[], hiC:[], th:null, mode:null, need:0},
+  cnt:{lo:0, hi:0},
+  task:{on:false, cursor:0, target:0, hit:0, total:0, miss:0, times:[], t0:0},
+  amb:{on:false, count:0, end:0},
+};
+const REFRACTORY = 200;      // ms 連続検知の不応期
+const TRIG_RATIO = 5;        // ノイズ床の何倍で発火か
+const BAND_LO = 400, BAND_HI = 9000; // 重心計算の帯域(Hz)
+const $ = id => document.getElementById(id);
+
+// 保存された調整の復元
+try{
+  const saved = JSON.parse(localStorage.getItem("tongue_cal")||"null");
+  if(saved && saved.th){ S.cal.th = saved.th; }
+}catch(e){}
+
+// ===== タブ =====
+document.querySelectorAll(".tab").forEach(b=>{
+  b.onclick = ()=>{
+    document.querySelectorAll(".tab").forEach(x=>x.classList.remove("active"));
+    b.classList.add("active");
+    document.querySelectorAll(".page").forEach(p=>p.hidden = (p.id !== b.dataset.p));
+  };
+});
+
+// ===== マイク開始 =====
+$("btnMic").onclick = async ()=>{
+  if(S.running) return;
+  try{
+    const stream = await navigator.mediaDevices.getUserMedia({audio:{
+      echoCancellation:false, noiseSuppression:false, autoGainControl:false
+    }});
+    S.ctx = new (window.AudioContext||window.webkitAudioContext)();
+    await S.ctx.resume();
+    const src = S.ctx.createMediaStreamSource(stream);
+    S.analyser = S.ctx.createAnalyser();
+    S.analyser.fftSize = 2048;
+    S.analyser.smoothingTimeConstant = 0;
+    src.connect(S.analyser);
+    S.running = true;
+    $("micState").textContent = "マイク: 動作中 🎙(" + Math.round(S.ctx.sampleRate/1000) + "kHz)";
+    loop();
+  }catch(err){
+    $("micState").textContent = "マイクを開けませんでした: " + err.name +
+      "(設定でこのページのマイクを許可してください)";
+  }
+};
+
+// ===== メインループ =====
+const timeBuf = new Float32Array(2048);
+const freqBuf = new Float32Array(1024);
+function loop(){
+  if(!S.running) return;
+  S.analyser.getFloatTimeDomainData(timeBuf);
+  let sum=0;
+  for(let i=0;i<timeBuf.length;i++) sum += timeBuf[i]*timeBuf[i];
+  const rms = Math.sqrt(sum/timeBuf.length);
+
+  $("meterBar").style.width = Math.min(100, rms*800) + "%";
+
+  const now = performance.now();
+  if(rms > Math.max(S.noiseFloor*TRIG_RATIO, 0.015) && (now - S.lastOnset) > REFRACTORY){
+    S.lastOnset = now;
+    onOnset();
+  }else{
+    // 静かな時だけノイズ床をゆっくり学習
+    S.noiseFloor = S.noiseFloor*0.995 + rms*0.005;
+  }
+  requestAnimationFrame(loop);
+}
+
+// ===== 発火時: スペクトル重心で高低判定 =====
+function onOnset(){
+  S.analyser.getFloatFrequencyData(freqBuf);
+  const sr = S.ctx.sampleRate, binHz = sr/2/freqBuf.length;
+  let num=0, den=0;
+  const i0 = Math.floor(BAND_LO/binHz), i1 = Math.min(freqBuf.length-1, Math.floor(BAND_HI/binHz));
+  for(let i=i0;i<=i1;i++){
+    const mag = Math.pow(10, freqBuf[i]/20);
+    num += mag * i * binHz;
+    den += mag;
+  }
+  if(den === 0) return;
+  const centroid = num/den;
+  $("statHz").textContent = Math.round(centroid) + " Hz";
+
+  if(S.cal.mode){ collectCal(centroid); return; }
+  if(S.amb.on){ S.amb.count++; $("ambientCount").textContent = S.amb.count; return; }
+
+  if(S.cal.th === null){ flashResult("?", "#2c333c"); return; }
+  const isHi = centroid >= S.cal.th;
+  if(isHi){ S.cnt.hi++; } else { S.cnt.lo++; }
+  $("cntLo").textContent = S.cnt.lo;
+  $("cntHi").textContent = S.cnt.hi;
+  $("cntAll").textContent = S.cnt.lo + S.cnt.hi;
+  flashResult(isHi ? "高" : "低", isHi ? "#4a3a1a" : "#16324f");
+  addLog((isHi?"高":"低") + " " + Math.round(centroid) + "Hz");
+  if(S.task.on) taskInput(isHi);
+}
+
+function flashResult(txt, bg){
+  const el = $("bigResult");
+  el.textContent = txt;
+  el.style.background = bg;
+  setTimeout(()=>{ el.style.background = "#2c333c"; }, 250);
+}
+function addLog(t){
+  const el = $("log");
+  el.innerHTML = new Date().toLocaleTimeString() + " " + t + "<br>" + el.innerHTML;
+}
+
+// ===== 調整 =====
+function startCal(mode){
+  if(!S.running){ alert("先に「開始」タブでマイクを開始してください"); return; }
+  S.cal.mode = mode; S.cal.need = 5;
+  (mode==="lo" ? S.cal.loC : S.cal.hiC).length = 0;
+  updCalStatus();
+}
+function collectCal(c){
+  const arr = S.cal.mode==="lo" ? S.cal.loC : S.cal.hiC;
+  arr.push(c);
+  S.cal.need--;
+  if(S.cal.need <= 0){
+    S.cal.mode = null;
+    if(S.cal.loC.length && S.cal.hiC.length) computeTh();
+  }
+  updCalStatus();
+}
+const mean = a => a.reduce((x,y)=>x+y,0)/a.length;
+function computeTh(){
+  const mLo = mean(S.cal.loC), mHi = mean(S.cal.hiC);
+  if(mHi <= mLo){
+    $("calStatus").innerHTML = "⚠️ 高(" + Math.round(mHi) + "Hz)が低(" + Math.round(mLo) +
+      "Hz)より低く出ました。<b>音の種類を変えて</b>やり直してください。";
+    S.cal.th = null; $("statTh").textContent = "未調整";
+    return;
+  }
+  S.cal.th = (mLo + mHi)/2;
+  localStorage.setItem("tongue_cal", JSON.stringify({th:S.cal.th}));
+  const sep = ((mHi-mLo)/mLo*100).toFixed(0);
+  $("statTh").textContent = Math.round(S.cal.th) + " Hz";
+  $("calStatus").innerHTML =
+    "✅ 調整完了<br>低の平均: <b class='lo'>" + Math.round(mLo) + " Hz</b><br>" +
+    "高の平均: <b class='hi'>" + Math.round(mHi) + " Hz</b><br>" +
+    "分離度: " + sep + "%(50%以上あると安定)";
+}
+function updCalStatus(){
+  if(S.cal.mode){
+    $("calStatus").innerHTML = "🎙 <b>" + (S.cal.mode==="lo"?"低い":"高い") +
+      "舌打ち</b>をあと <b>" + S.cal.need + "回</b>…";
+  }
+}
+$("btnCalLo").onclick = ()=>startCal("lo");
+$("btnCalHi").onclick = ()=>startCal("hi");
+$("btnCalReset").onclick = ()=>{
+  S.cal = {loC:[], hiC:[], th:null, mode:null, need:0};
+  localStorage.removeItem("tongue_cal");
+  $("calStatus").textContent = "未調整"; $("statTh").textContent = "未調整";
+};
+
+// ===== 判定タブ =====
+$("btnLiveReset").onclick = ()=>{
+  S.cnt = {lo:0, hi:0};
+  $("cntLo").textContent = "0"; $("cntHi").textContent = "0"; $("cntAll").textContent = "0";
+  $("log").innerHTML = "";
+};
+
+// ===== 課題(低=送り/高=決定) =====
+const cells = [...document.querySelectorAll(".scan-cell")];
+function drawTask(){
+  cells.forEach((c,i)=>{
+    c.classList.toggle("cursor", S.task.on && i===S.task.cursor);
+    c.classList.toggle("target", S.task.on && i===S.task.target);
+  });
+}
+function newRound(){
+  S.task.cursor = 0;
+  S.task.target = 1 + Math.floor(Math.random()*3); // 0開始は簡単すぎるので1〜3
+  S.task.t0 = performance.now();
+  drawTask();
+}
+$("btnTaskStart").onclick = ()=>{
+  if(S.cal.th===null){ alert("先に「調整」を済ませてください"); return; }
+  S.task.on = true; S.task.hit=0; S.task.total=0; S.task.miss=0; S.task.times=[];
+  newRound(); updTaskStats();
+};
+function taskInput(isHi){
+  if(!S.task.on) return;
+  if(!isHi){
+    S.task.cursor = (S.task.cursor+1) % cells.length;
+    // 送り過ぎ(1周してもうた)をミスとして数える
+    if(S.task.cursor === 0) S.task.miss++;
+    drawTask();
+  }else{
+    S.task.total++;
+    if(S.task.cursor === S.task.target){
+      S.task.hit++;
+      S.task.times.push((performance.now()-S.task.t0)/1000);
+    }else{
+      S.task.miss++;
+    }
+    if(S.task.total >= 5){
+      S.task.on = false;
+      cells.forEach(c=>c.classList.remove("cursor","target"));
+    }else{
+      newRound();
+    }
+  }
+  updTaskStats();
+}
+function updTaskStats(){
+  $("tHit").textContent = S.task.hit + " / " + S.task.total;
+  $("tMiss").textContent = S.task.miss;
+  $("tTime").textContent = S.task.times.length ?
+    (mean(S.task.times)).toFixed(1) + " 秒" : "—";
+}
+
+// ===== 環境音テスト =====
+let ambTimer = null;
+$("btnAmb").onclick = ()=>{
+  if(!S.running){ alert("先に「開始」タブでマイクを開始してください"); return; }
+  S.amb.on = true; S.amb.count = 0; S.amb.end = performance.now() + 60000;
+  $("ambientCount").textContent = "0";
+  clearInterval(ambTimer);
+  ambTimer = setInterval(()=>{
+    const left = Math.max(0, Math.ceil((S.amb.end - performance.now())/1000));
+    $("ambState").textContent = "計測中… のこり " + left + " 秒";
+    if(left<=0){
+      clearInterval(ambTimer); S.amb.on=false;
+      $("ambState").textContent = "終了: 60秒間の誤検知 " + S.amb.count + " 回" +
+        (S.amb.count===0 ? " 🎉" : "(0回が理想)");
+    }
+  }, 250);
+};
+</script>
+</body>
+</html>
