@@ -70,7 +70,7 @@
 </head>
 <body>
 <header>
-  <h1>舌打ち入力プロト <span class="pill">v0.3</span></h1>
+  <h1>舌打ち入力プロト <span class="pill">v0.4</span></h1>
   <div class="sub">音は端末内で処理・どこにも送信しません</div>
 </header>
 
@@ -144,7 +144,7 @@
   <!-- モールス -->
   <section id="pMorse" class="page" hidden>
     <div class="card">
-      <p class="hint"><b>低=短点(・)/高=長点(−)</b>。打つのをやめて少し待つと1文字確定します(ローマ字→ひらがな変換つき)。</p>
+      <p class="hint"><b>低=短点(・)/高=長点(−)</b>。打つのをやめて少し待つと1文字確定します(ローマ字→ひらがな変換つき)。<br><b>低6連打=1文字けす</b>(モールスの訂正符)。</p>
       <div id="morseSeq">&nbsp;</div>
       <div id="morseText">&nbsp;</div>
       <div id="morseKana">&nbsp;</div>
@@ -462,6 +462,16 @@ function morseInput(isHi){
 // 区切り待ち: 定期チェックで文字確定
 setInterval(()=>{
   if(M.seq && (performance.now() - M.lastAt) > M.gapMs){
+    // 訂正符: 短点のみ6回以上=バックスペース(伝統の訂正符・・・・・・・・の簡易版)
+    if(/^\.{6,}$/.test(M.seq)){
+      M.seq = "";
+      M.text = M.text.slice(0,-1);
+      drawMorse();
+      const el = document.getElementById("morseSeq");
+      el.textContent = "⌫ 1文字消しました";
+      setTimeout(()=>{ if(!M.seq) drawMorse(); }, 900);
+      return;
+    }
     const ch = MORSE[M.seq] || "?";
     M.text += ch;
     M.seq = "";
