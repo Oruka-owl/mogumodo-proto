@@ -17,8 +17,8 @@
   header h1{font-size:18px; margin:0; letter-spacing:.05em;}
   header .sub{font-size:11px; color:var(--sub); margin-top:2px;}
   #tabs{display:flex; gap:6px; padding:8px 10px; position:sticky; top:0; background:var(--bg); z-index:5;}
-  .tab{flex:1; padding:12px 4px; border:none; border-radius:12px; background:var(--card);
-       color:var(--sub); font-size:13px; font-weight:600;}
+  .tab{flex:1; padding:12px 2px; border:none; border-radius:12px; background:var(--card);
+       color:var(--sub); font-size:12px; font-weight:600;}
   .tab.active{background:var(--accent); color:#1a1a1a;}
   main{padding:10px 14px 40px; max-width:520px; margin:0 auto;}
   .card{background:var(--card); border-radius:16px; padding:16px; margin-bottom:12px;}
@@ -45,6 +45,11 @@
   .scan-cell.target.cursor{background:#1f5c3d; border-color:var(--ok);}
   #ambientCount{font-size:56px; font-weight:800; text-align:center; padding:16px 0;}
   .stat-line{display:flex; justify-content:space-between; padding:4px 0; font-size:14px;}
+  #morseSeq{font-size:34px; letter-spacing:6px; text-align:center; min-height:48px; color:var(--accent); font-weight:800;}
+  #morseText{font-size:22px; text-align:center; min-height:34px; word-break:break-all; font-family:monospace;}
+  #morseKana{font-size:22px; text-align:center; min-height:34px; color:var(--ok); word-break:break-all;}
+  #quizTarget{font-size:56px; font-weight:800; text-align:center; padding:10px 0;}
+  input[type=range]{accent-color:var(--accent);}
   .stat-line span:last-child{font-weight:700;}
   footer{text-align:center; color:var(--sub); font-size:10px; padding:16px;}
   .pill{display:inline-block; padding:2px 10px; border-radius:10px; background:#2c333c; font-size:11px; margin-left:6px;}
@@ -52,7 +57,7 @@
 </head>
 <body>
 <header>
-  <h1>舌打ち入力プロト <span class="pill">v0</span></h1>
+  <h1>舌打ち入力プロト <span class="pill">v0.1</span></h1>
   <div class="sub">音は端末内で処理・どこにも送信しません</div>
 </header>
 
@@ -61,6 +66,7 @@
   <button class="tab" data-p="pCal">調整</button>
   <button class="tab" data-p="pLive">判定</button>
   <button class="tab" data-p="pTask">課題</button>
+  <button class="tab" data-p="pMorse">モールス</button>
   <button class="tab" data-p="pAmb">環境音</button>
 </div>
 
@@ -118,6 +124,39 @@
         <div class="stat-line"><span>操作ミス(送り過ぎ等)</span><span id="tMiss">0</span></div>
         <div class="stat-line"><span>平均所要時間</span><span id="tTime">—</span></div>
       </div>
+    </div>
+  </section>
+
+  <!-- モールス -->
+  <section id="pMorse" class="page" hidden>
+    <div class="card">
+      <p class="hint"><b>低=短点(・)/高=長点(−)</b>。打つのをやめて少し待つと1文字確定します(ローマ字→ひらがな変換つき)。</p>
+      <div id="morseSeq">&nbsp;</div>
+      <div id="morseText">&nbsp;</div>
+      <div id="morseKana">&nbsp;</div>
+      <div style="display:flex; gap:8px;">
+        <button class="big-btn secondary" id="btnMorseClear" style="flex:1;">全消し</button>
+        <button class="big-btn secondary" id="btnMorseBS" style="flex:1;">1文字消す</button>
+      </div>
+      <label class="hint">文字の区切り待ち時間: <span id="gapVal">1.2</span>秒
+        <input type="range" id="gapSlider" min="0.6" max="2.5" step="0.1" value="1.2" style="width:100%;">
+      </label>
+    </div>
+    <div class="card">
+      <p class="hint"><b>出題練習</b>: 表示された文字をモールスで打ってください(10問)。</p>
+      <div id="quizTarget">—</div>
+      <div id="quizHint" class="hint" style="text-align:center;">&nbsp;</div>
+      <div style="display:flex; gap:8px;">
+        <button class="big-btn" id="btnQuizStart" style="flex:2;">出題スタート</button>
+        <button class="big-btn secondary" id="btnQuizHint" style="flex:1;">ヒント</button>
+      </div>
+      <div class="stat-line"><span>正解</span><span id="qHit">0 / 0</span></div>
+      <div class="stat-line"><span>平均所要時間</span><span id="qTime">—</span></div>
+    </div>
+    <div class="card">
+      <details><summary class="hint">モールス符号表(タップで開く)</summary>
+        <div id="morseChart" class="hint" style="column-count:3; margin-top:8px; line-height:2;"></div>
+      </details>
     </div>
   </section>
 
@@ -242,6 +281,7 @@ function onOnset(){
   flashResult(isHi ? "高" : "低", isHi ? "#4a3a1a" : "#16324f");
   addLog((isHi?"高":"低") + " " + Math.round(centroid) + "Hz");
   if(S.task.on) taskInput(isHi);
+  if(!$("pMorse").hidden) morseInput(isHi);
 }
 
 function flashResult(txt, bg){
@@ -359,6 +399,128 @@ function updTaskStats(){
   $("tMiss").textContent = S.task.miss;
   $("tTime").textContent = S.task.times.length ?
     (mean(S.task.times)).toFixed(1) + " 秒" : "—";
+}
+
+// ===== モールス入力(低=・ 高=−) =====
+const MORSE = {
+ ".-":"A","-...":"B","-.-.":"C","-..":"D",".":"E","..-.":"F","--.":"G","....":"H",
+ "..":"I",".---":"J","-.-":"K",".-..":"L","--":"M","-.":"N","---":"O",".--.":"P",
+ "--.-":"Q",".-.":"R","...":"S","-":"T","..-":"U","...-":"V",".--":"W","-..-":"X",
+ "-.--":"Y","--..":"Z",
+ ".----":"1","..---":"2","...--":"3","....-":"4",".....":"5",
+ "-....":"6","--...":"7","---..":"8","----.":"9","-----":"0"
+};
+const M = { seq:"", text:"", lastAt:0, gapMs:1200, quiz:null };
+// 符号表を描画
+(function(){
+  const el = $("morseChart");
+  el.innerHTML = Object.entries(MORSE).map(([c,l])=>
+    "<b>"+l+"</b> "+c.replace(/\./g,"・").replace(/-/g,"−")).join("<br>");
+})();
+$("gapSlider").oninput = e=>{
+  M.gapMs = parseFloat(e.target.value)*1000;
+  $("gapVal").textContent = e.target.value;
+};
+function morseInput(isHi){
+  M.seq += isHi ? "-" : ".";
+  M.lastAt = performance.now();
+  drawMorse();
+}
+// 区切り待ち: 定期チェックで文字確定
+setInterval(()=>{
+  if(M.seq && (performance.now() - M.lastAt) > M.gapMs){
+    const ch = MORSE[M.seq] || "?";
+    M.text += ch;
+    M.seq = "";
+    drawMorse();
+    if(M.quiz) quizCheck(ch);
+  }
+}, 100);
+function drawMorse(){
+  $("morseSeq").textContent = M.seq ? M.seq.replace(/\./g,"・").replace(/-/g,"−") : " ";
+  $("morseText").textContent = M.text || " ";
+  $("morseKana").textContent = romajiToKana(M.text) || " ";
+}
+$("btnMorseClear").onclick = ()=>{ M.seq=""; M.text=""; drawMorse(); };
+$("btnMorseBS").onclick = ()=>{ M.seq=""; M.text = M.text.slice(0,-1); drawMorse(); };
+
+// ローマ字→ひらがな(簡易・表示用)
+function romajiToKana(s){
+  s = s.toLowerCase();
+  const tbl = {
+   kya:"きゃ",kyu:"きゅ",kyo:"きょ",sha:"しゃ",shu:"しゅ",sho:"しょ",sya:"しゃ",syu:"しゅ",syo:"しょ",
+   cha:"ちゃ",chu:"ちゅ",cho:"ちょ",tya:"ちゃ",tyu:"ちゅ",tyo:"ちょ",nya:"にゃ",nyu:"にゅ",nyo:"にょ",
+   hya:"ひゃ",hyu:"ひゅ",hyo:"ひょ",mya:"みゃ",myu:"みゅ",myo:"みょ",rya:"りゃ",ryu:"りゅ",ryo:"りょ",
+   gya:"ぎゃ",gyu:"ぎゅ",gyo:"ぎょ",ja:"じゃ",ju:"じゅ",jo:"じょ",jya:"じゃ",jyu:"じゅ",jyo:"じょ",
+   bya:"びゃ",byu:"びゅ",byo:"びょ",pya:"ぴゃ",pyu:"ぴゅ",pyo:"ぴょ",
+   shi:"し",chi:"ち",tsu:"つ",
+   ka:"か",ki:"き",ku:"く",ke:"け",ko:"こ",sa:"さ",si:"し",su:"す",se:"せ",so:"そ",
+   ta:"た",ti:"ち",tu:"つ",te:"て",to:"と",na:"な",ni:"に",nu:"ぬ",ne:"ね",no:"の",
+   ha:"は",hi:"ひ",hu:"ふ",fu:"ふ",he:"へ",ho:"ほ",ma:"ま",mi:"み",mu:"む",me:"め",mo:"も",
+   ya:"や",yu:"ゆ",yo:"よ",ra:"ら",ri:"り",ru:"る",re:"れ",ro:"ろ",wa:"わ",wo:"を",
+   ga:"が",gi:"ぎ",gu:"ぐ",ge:"げ",go:"ご",za:"ざ",zi:"じ",ji:"じ",zu:"ず",ze:"ぜ",zo:"ぞ",
+   da:"だ",di:"ぢ",du:"づ",de:"で",do:"ど",ba:"ば",bi:"び",bu:"ぶ",be:"べ",bo:"ぼ",
+   pa:"ぱ",pi:"ぴ",pu:"ぷ",pe:"ぺ",po:"ぽ",
+   a:"あ",i:"い",u:"う",e:"え",o:"お"
+  };
+  let out="", i=0;
+  while(i < s.length){
+    // 促音: 子音の連続(nn以外)
+    if(i+1 < s.length && s[i]===s[i+1] && !"aiueon".includes(s[i])){
+      out += "っ"; i++; continue;
+    }
+    // ん: nの後に母音/y以外
+    if(s[i]==="n" && (i+1>=s.length || !"aiueoy".includes(s[i+1]))){
+      out += "ん"; i++; continue;
+    }
+    let hit = null;
+    for(const len of [3,2,1]){
+      const part = s.substr(i,len);
+      if(tbl[part]){ hit = tbl[part]; i += len; break; }
+    }
+    if(hit){ out += hit; } else { out += s[i]; i++; }
+  }
+  return out;
+}
+
+// ===== 出題練習 =====
+const QUIZ_SET = "ETAINSHRDLUMWGKO".split(""); // 短い符号中心に出題
+function quizNew(){
+  M.quiz.target = QUIZ_SET[Math.floor(Math.random()*QUIZ_SET.length)];
+  M.quiz.t0 = performance.now();
+  $("quizTarget").textContent = M.quiz.target;
+  $("quizHint").innerHTML = "&nbsp;";
+}
+$("btnQuizStart").onclick = ()=>{
+  if(S.cal.th===null){ alert("先に「調整」を済ませてください"); return; }
+  M.quiz = {hit:0, total:0, times:[], target:null, t0:0};
+  M.text=""; M.seq=""; drawMorse();
+  quizNew(); quizStats();
+};
+$("btnQuizHint").onclick = ()=>{
+  if(!M.quiz || !M.quiz.target) return;
+  const code = Object.entries(MORSE).find(([c,l])=>l===M.quiz.target)[0];
+  $("quizHint").textContent = code.replace(/\./g,"・(低)").replace(/-/g,"−(高)");
+};
+function quizCheck(ch){
+  if(!M.quiz || !M.quiz.target) return;
+  M.quiz.total++;
+  if(ch === M.quiz.target){
+    M.quiz.hit++;
+    M.quiz.times.push((performance.now()-M.quiz.t0)/1000);
+  }
+  quizStats();
+  if(M.quiz.total >= 10){
+    $("quizTarget").textContent = "終了🎉";
+    $("quizHint").textContent = "正解 " + M.quiz.hit + "/10";
+    M.quiz = null;
+  }else{
+    quizNew();
+  }
+}
+function quizStats(){
+  $("qHit").textContent = M.quiz.hit + " / " + M.quiz.total;
+  $("qTime").textContent = M.quiz.times.length ? mean(M.quiz.times).toFixed(1)+" 秒" : "—";
 }
 
 // ===== 環境音テスト =====
