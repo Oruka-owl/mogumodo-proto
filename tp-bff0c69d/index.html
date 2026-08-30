@@ -248,13 +248,20 @@ async function startMic(deviceId){
   if(S.stream){ S.stream.getTracks().forEach(t=>t.stop()); }
   if(S.ctx){ try{ await S.ctx.close(); }catch(e){} }
   S.running = false;
-  const audio = {echoCancellation:false, noiseSuppression:false, autoGainControl:false};
-  if(deviceId){ audio.deviceId = {exact: deviceId}; }
-  else{
-    const saved = localStorage.getItem("micDeviceId");
-    audio.deviceId = saved ? {ideal: saved} : {ideal: "default"};
+  const base = {echoCancellation:false, noiseSuppression:false, autoGainControl:false};
+  // 優先順: 明示指定 → 保存済み → システム既定("default") → ブラウザ任せ
+  const tries = [];
+  if(deviceId) tries.push({...base, deviceId:{exact: deviceId}});
+  const saved = localStorage.getItem("micDeviceId");
+  if(!deviceId && saved) tries.push({...base, deviceId:{exact: saved}});
+  tries.push({...base, deviceId:{exact: "default"}});
+  tries.push(base);
+  let stream = null, lastErr = null;
+  for(const audio of tries){
+    try{ stream = await navigator.mediaDevices.getUserMedia({audio}); break; }
+    catch(err){ lastErr = err; }
   }
-  const stream = await navigator.mediaDevices.getUserMedia({audio});
+  if(!stream) throw lastErr;
   S.stream = stream;
   S.ctx = new (window.AudioContext||window.webkitAudioContext)();
   await S.ctx.resume();
