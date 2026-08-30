@@ -70,7 +70,7 @@
 </head>
 <body>
 <header>
-  <h1>舌打ち入力プロト <span class="pill">v0.4</span></h1>
+  <h1>舌打ち入力プロト <span class="pill">v0.5</span></h1>
   <div class="sub">音は端末内で処理・どこにも送信しません</div>
 </header>
 
@@ -92,6 +92,7 @@
       ①下のボタンでマイクを開始 → ②「調整」で自分の舌打ちを覚えさせる → ③「判定」「課題」で試す。</p>
       <button class="big-btn" id="btnMic">🎙 マイクを開始する</button>
       <div id="micState" class="hint" style="margin-top:8px;">マイク: 停止中</div>
+      <select id="micSel" style="display:none; margin-top:6px; max-width:100%; padding:6px; border-radius:8px; background:#2c333c; color:#e8ecf1; border:1px solid #444;"></select>
       <div id="meter"><div id="meterBar"></div></div>
       <p class="hint" style="margin-top:10px;">💡 コツ: 口を「タッ」と鳴らすのが低、「チッ」(舌先を上あご前方)が高、みたいに<b>自分が出しやすい2種類</b>でOK。決まりはありません。</p>
     </div>
@@ -241,22 +242,60 @@ document.querySelectorAll(".tab").forEach(b=>{
 });
 
 // ===== マイク開始 =====
+// v0.5: 連係マイク(iPhone)を勝手に掴んで無音になる事故対策。
+// 既定=システム標準マイクを優先し、ドロップダウンで切替可(選択はlocalStorageに保存)
+async function startMic(deviceId){
+  if(S.stream){ S.stream.getTracks().forEach(t=>t.stop()); }
+  if(S.ctx){ try{ await S.ctx.close(); }catch(e){} }
+  S.running = false;
+  const audio = {echoCancellation:false, noiseSuppression:false, autoGainControl:false};
+  if(deviceId){ audio.deviceId = {exact: deviceId}; }
+  else{
+    const saved = localStorage.getItem("micDeviceId");
+    audio.deviceId = saved ? {ideal: saved} : {ideal: "default"};
+  }
+  const stream = await navigator.mediaDevices.getUserMedia({audio});
+  S.stream = stream;
+  S.ctx = new (window.AudioContext||window.webkitAudioContext)();
+  await S.ctx.resume();
+  const src = S.ctx.createMediaStreamSource(stream);
+  S.analyser = S.ctx.createAnalyser();
+  S.analyser.fftSize = 2048;
+  S.analyser.smoothingTimeConstant = 0;
+  src.connect(S.analyser);
+  S.running = true;
+  S.loopGen = (S.loopGen || 0) + 1;
+  const track = stream.getAudioTracks()[0];
+  $("micState").textContent = "マイク: 動作中 🎙 " + (track.label || "") +
+    "(" + Math.round(S.ctx.sampleRate/1000) + "kHz)";
+  await buildMicSel(track);
+  loop(S.loopGen);
+}
+
+async function buildMicSel(track){
+  const sel = $("micSel");
+  const devs = (await navigator.mediaDevices.enumerateDevices())
+    .filter(d=>d.kind==="audioinput" && d.deviceId !== "default");
+  sel.innerHTML = "";
+  for(const d of devs){
+    const o = document.createElement("option");
+    o.value = d.deviceId;
+    o.textContent = d.label || "マイク";
+    if(track && d.label === track.label) o.selected = true;
+    sel.appendChild(o);
+  }
+  sel.style.display = devs.length > 1 ? "block" : "none";
+  sel.onchange = async ()=>{
+    localStorage.setItem("micDeviceId", sel.value);
+    try{ await startMic(sel.value); }
+    catch(err){ $("micState").textContent = "切替失敗: " + err.name; }
+  };
+}
+
 $("btnMic").onclick = async ()=>{
   if(S.running) return;
   try{
-    const stream = await navigator.mediaDevices.getUserMedia({audio:{
-      echoCancellation:false, noiseSuppression:false, autoGainControl:false
-    }});
-    S.ctx = new (window.AudioContext||window.webkitAudioContext)();
-    await S.ctx.resume();
-    const src = S.ctx.createMediaStreamSource(stream);
-    S.analyser = S.ctx.createAnalyser();
-    S.analyser.fftSize = 2048;
-    S.analyser.smoothingTimeConstant = 0;
-    src.connect(S.analyser);
-    S.running = true;
-    $("micState").textContent = "マイク: 動作中 🎙(" + Math.round(S.ctx.sampleRate/1000) + "kHz)";
-    loop();
+    await startMic(null);
   }catch(err){
     $("micState").textContent = "マイクを開けませんでした: " + err.name +
       "(設定でこのページのマイクを許可してください)";
@@ -266,8 +305,8 @@ $("btnMic").onclick = async ()=>{
 // ===== メインループ =====
 const timeBuf = new Float32Array(2048);
 const freqBuf = new Float32Array(1024);
-function loop(){
-  if(!S.running) return;
+function loop(gen){
+  if(!S.running || gen !== S.loopGen) return;
   S.analyser.getFloatTimeDomainData(timeBuf);
   let sum=0;
   for(let i=0;i<timeBuf.length;i++) sum += timeBuf[i]*timeBuf[i];
@@ -283,7 +322,7 @@ function loop(){
     // 静かな時だけノイズ床をゆっくり学習
     S.noiseFloor = S.noiseFloor*0.995 + rms*0.005;
   }
-  requestAnimationFrame(loop);
+  requestAnimationFrame(()=>loop(gen));
 }
 
 // ===== 発火時: スペクトル重心で高低判定 =====
